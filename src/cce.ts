@@ -1,4 +1,4 @@
-/*
+/**
  * AAC.js - Advanced Audio Coding decoder in JavaScript
  * Created by Devon Govett
  * Copyright (c) 2012, Official.fm Labs
@@ -18,21 +18,9 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-var ICStream = require('./ics');
-var Huffman = require('./huffman');
-    
-// Channel Coupling Element
-function CCEElement(config) {
-    this.ics = new ICStream(config);
-    this.channelPair = new Array(8);
-    this.idSelect = new Int32Array(8);
-    this.chSelect = new Int32Array(8);
-    this.gain = new Array(16);
-}
-
-CCEElement.BEFORE_TNS = 0;
-CCEElement.AFTER_TNS = 1;
-CCEElement.AFTER_IMDCT = 2;
+import { ICStream } from "./ics";
+import { Huffman } from './huffman';
+import { Element } from "./element";
 
 const CCE_SCALE = new Float32Array([
     1.09050773266525765921,
@@ -40,9 +28,31 @@ const CCE_SCALE = new Float32Array([
     1.4142135623730950488016887,
     2.0
 ]);
+    
+// Channel Coupling Element
+export class CCEElement extends Element {
+    constructor(config) {
+        super();
+        this.ics = new ICStream(config);
+        this.channelPair = new Array(8);
+        this.idSelect = new Int32Array(8);
+        this.chSelect = new Int32Array(8);
+        this.gain = new Array(16);
+    }
 
-CCEElement.prototype = {
-    decode: function(stream, config) {
+    ics : ICStream;
+    channelPair : number[];
+    idSelect : Int32Array;
+    chSelect : Int32Array;
+    gain : Float32Array[];
+    couplingPoint : number;
+    coupledCount : number;
+
+    static BEFORE_TNS = 0;
+    static AFTER_TNS = 1;
+    static AFTER_IMDCT = 2;
+
+    decode(stream, config) {
         var channelPair = this.channelPair,
             idSelect = this.idSelect,
             chSelect = this.chSelect;
@@ -116,18 +126,18 @@ CCEElement.prototype = {
                 }
             }
         }
-    },
+    }
 
-    applyIndependentCoupling: function(index, data) {
+    applyIndependentCoupling(index, data) {
         var gain = this.gain[index][0],
             iqData = this.ics.data;
 
         for (var i = 0; i < data.length; i++) {
             data[i] += gain * iqData[i];
         }
-    },
+    }
 
-    applyDependentCoupling: function(index, data) {
+    applyDependentCoupling(index, data) {
         var info = this.ics.info,
             swbOffsets = info.swbOffsets,
             groupCount = info.groupCount,
@@ -156,6 +166,4 @@ CCEElement.prototype = {
             offset += len * 128;
         }
     }
-};
-
-module.exports = CCEElement;
+}

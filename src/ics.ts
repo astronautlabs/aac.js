@@ -18,33 +18,12 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-var tables = require('./tables');
-var Huffman = require('./huffman');
-var TNS = require('./tns');
+import * as tables from './tables';
+import { Huffman } from './huffman';
+import { TNS } from './tns';
+import { AOT_AAC_LTP, AOT_AAC_MAIN } from './profiles';
     
 // Individual Channel Stream
-function ICStream(config) {
-    this.info = new ICSInfo();
-    this.bandTypes = new Int32Array(MAX_SECTIONS);
-    this.sectEnd = new Int32Array(MAX_SECTIONS);
-    this.data = new Float32Array(config.frameLength);
-    this.scaleFactors = new Float32Array(MAX_SECTIONS);
-    this.randomState = 0x1F2E3D4C;
-    this.tns = new TNS(config);
-    this.specBuf = new Int32Array(4);
-}
-      
-ICStream.ZERO_BT = 0;         // Scalefactors and spectral data are all zero.
-ICStream.FIRST_PAIR_BT = 5;   // This and later band types encode two values (rather than four) with one code word.
-ICStream.ESC_BT = 11;         // Spectral data are coded with an escape sequence.
-ICStream.NOISE_BT = 13;       // Spectral data are scaled white noise not coded in the bitstream.
-ICStream.INTENSITY_BT2 = 14;  // Scalefactor data are intensity stereo positions.
-ICStream.INTENSITY_BT = 15;   // Scalefactor data are intensity stereo positions.
-
-ICStream.ONLY_LONG_SEQUENCE = 0;
-ICStream.LONG_START_SEQUENCE = 1;
-ICStream.EIGHT_SHORT_SEQUENCE = 2;
-ICStream.LONG_STOP_SEQUENCE = 3;
 
 const MAX_SECTIONS = 120,
       MAX_WINDOW_GROUP_COUNT = 8;
@@ -52,8 +31,49 @@ const MAX_SECTIONS = 120,
 const SF_DELTA = 60,
       SF_OFFSET = 200;
 
-ICStream.prototype = {
-    decode: function(stream, config, commonWindow) {
+export class ICStream {
+    constructor(config) {
+        this.info = new ICSInfo();
+        this.bandTypes = new Int32Array(MAX_SECTIONS);
+        this.sectEnd = new Int32Array(MAX_SECTIONS);
+        this.data = new Float32Array(config.frameLength);
+        this.scaleFactors = new Float32Array(MAX_SECTIONS);
+        this.randomState = 0x1F2E3D4C;
+        this.tns = new TNS(config);
+        this.specBuf = new Int32Array(4);
+    }
+      
+    info : ICSInfo;
+    bandTypes : Int32Array;
+    sectEnd : Int32Array;
+    data : Float32Array;
+    scaleFactors : Float32Array;
+    randomState : number;
+    tns : TNS;
+    specBuf : Int32Array;
+    globalGain : number;
+    pulsePresent : number;
+    pulseOffset : Int32Array;
+    pulseAmp : Int32Array;
+    tnsPresent : number;
+    gainPresent : number;
+    
+    static readonly ZERO_BT = 0;         // Scalefactors and spectral data are all zero.
+    static readonly FIRST_PAIR_BT = 5;   // This and later band types encode two values (rather than four) with one code word.
+    static readonly ESC_BT = 11;         // Spectral data are coded with an escape sequence.
+    static readonly NOISE_BT = 13;       // Spectral data are scaled white noise not coded in the bitstream.
+    static readonly INTENSITY_BT2 = 14;  // Scalefactor data are intensity stereo positions.
+    static readonly INTENSITY_BT = 15;   // Scalefactor data are intensity stereo positions.
+    static readonly ONLY_LONG_SEQUENCE = 0;
+    static readonly LONG_START_SEQUENCE = 1;
+    static readonly EIGHT_SHORT_SEQUENCE = 2;
+    static readonly LONG_STOP_SEQUENCE = 3;
+
+    get maxSFB() {
+        return this.info.maxSFB;
+    }
+    
+    decode(stream : BitstreamReader, config, commonWindow) {
         this.globalGain = stream.read(8);
         
         if (!commonWindow)
@@ -78,9 +98,9 @@ ICStream.prototype = {
         }
         
         this.decodeSpectralData(stream);
-    },
+    }
     
-    decodeBandTypes: function(stream, config) {
+    decodeBandTypes(stream, config) {
         var bits = this.info.windowSequence === ICStream.EIGHT_SHORT_SEQUENCE ? 3 : 5,
             groupCount = this.info.groupCount,
             maxSFB = this.info.maxSFB,
@@ -113,9 +133,9 @@ ICStream.prototype = {
                 }
             }
         }
-    },
+    }
     
-    decodeScaleFactors: function(stream) {
+    decodeScaleFactors(stream) {
         var groupCount = this.info.groupCount,
             maxSFB = this.info.maxSFB,
             offset = [this.globalGain, this.globalGain - 90, 0], // spectrum, noise, intensity
@@ -170,9 +190,9 @@ ICStream.prototype = {
                 }
             }
         }
-    },
+    }
     
-    decodePulseData: function(stream) {
+    decodePulseData(stream) {
         var pulseCount = stream.read(2) + 1,
             pulseSWB = stream.read(6);
             
@@ -198,9 +218,9 @@ ICStream.prototype = {
                 
             this.pulseAmp[i] = stream.read(4);
         }
-    },
+    }
     
-    decodeSpectralData: function(stream) {
+    decodeSpectralData(stream) {
         var data = this.data,
             info = this.info,
             maxSFB = info.maxSFB,
@@ -267,16 +287,28 @@ ICStream.prototype = {
 }
 
 // Individual Channel Stream Info
-function ICSInfo() {
-    this.windowShape = new Int32Array(2);
-    this.windowSequence = ICStream.ONLY_LONG_SEQUENCE;
-    this.groupLength = new Int32Array(MAX_WINDOW_GROUP_COUNT);
-    this.ltpData1Present = false;
-    this.ltpData2Present = false;
-}
+export class ICSInfo {
+    constructor() {
+        this.windowShape = new Int32Array(2);
+        this.windowSequence = ICStream.ONLY_LONG_SEQUENCE;
+        this.groupLength = new Int32Array(MAX_WINDOW_GROUP_COUNT);
+        this.ltpData1Present = false;
+        this.ltpData2Present = false;
+    }
 
-ICSInfo.prototype = {
-    decode: function(stream, config, commonWindow) {
+    windowShape : Int32Array;
+    windowSequence : number;
+    groupLength : Int32Array;
+    ltpData1Present : boolean;
+    ltpData2Present : boolean;
+    groupCount : number;
+    maxSFB : number;
+    windowCount : number;
+    swbOffsets : Uint16Array;
+    swbCount : number;
+    predictorPresent : boolean;
+    
+    decode(stream, config, commonWindow) {
         stream.advance(1); // reserved
         
         this.windowSequence = stream.read(2);
@@ -311,9 +343,9 @@ ICSInfo.prototype = {
             if (this.predictorPresent)
                 this.decodePrediction(stream, config, commonWindow);
         }
-    },
+    }
     
-    decodePrediction: function(stream, config, commonWindow) {
+    decodePrediction(stream, config, commonWindow) {
         throw new Error('Prediction not implemented.');
         
         switch (config.profile) {
@@ -329,6 +361,4 @@ ICSInfo.prototype = {
                 throw new Error('Unsupported profile for prediction ' + config.profile);
         }
     }
-};
-
-module.exports = ICStream;
+}

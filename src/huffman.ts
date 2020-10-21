@@ -1422,8 +1422,8 @@ const UNSIGNED = [false, false, true, true, false, false, true, true, true, true
       QUAD_LEN = 4, 
       PAIR_LEN = 2;
 
-var Huffman = {
-    findOffset: function(stream, table) {
+export class Huffman {
+    static findOffset(stream, table) {
         var off = 0,
             len = table[off][0],
             cw = stream.read(len);
@@ -1436,30 +1436,30 @@ var Huffman = {
         }
         
         return off;
-    },
+    }
     
-    signValues: function(stream, data, off, len) {
+    static signValues(stream, data, off, len) {
         for (var i = off; i < off + len; i++) {
             if (data[i] && stream.read(1))
                 data[i] = -data[i];
         }
-    },
+    }
     
-    getEscape: function(stream, s) {
+    static getEscape(stream, s) {
         var i = 4;
         while (stream.read(1))
             i++;
             
         var j = stream.read(i) | (1 << i);
         return s < 0 ? -j : j;
-    },
+    }
     
-    decodeScaleFactor: function(stream) {
+    static decodeScaleFactor(stream) {
         var offset = this.findOffset(stream, HCB_SF);
         return HCB_SF[offset][2];
-    },
+    }
     
-    decodeSpectralData: function(stream, cb, data, off) {
+    static decodeSpectralData(stream, cb, data, off) {
         var HCB = CODEBOOKS[cb - 1],
             offset = this.findOffset(stream, HCB);
             
@@ -1488,6 +1488,4 @@ var Huffman = {
             throw new Error("Huffman: unknown spectral codebook: " + cb);
         }
     }
-};
-
-module.exports = Huffman;
+}

@@ -18,39 +18,58 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-var AV          = require('av');
-var ADTSDemuxer = require('./adts_demuxer');
-var ICStream    = require('./ics');
-var CPEElement  = require('./cpe');
-var CCEElement  = require('./cce');
-var FilterBank  = require('./filter_bank');
-var tables      = require('./tables');
+import { ICStream } from './ics';
+import { CPEElement } from './cpe';
+import { CCEElement } from './cce';
+import { FilterBank } from './filter_bank';
+import * as tables from './tables';
+import { AOT_AAC_LC, AOT_AAC_LTP, AOT_AAC_MAIN, AOT_ESCAPE } from './profiles';
+import { BitstreamReader } from '@astronautlabs/bitstream';
 
-var AACDecoder = AV.Decoder.extend(function() {
-    AV.Decoder.register('mp4a', this);
-    AV.Decoder.register('aac ', this);
-    
-    // AAC profiles
-    const AOT_AAC_MAIN = 1, // no
-          AOT_AAC_LC = 2,   // yes
-          AOT_AAC_LTP = 4,  // no
-          AOT_ESCAPE = 31;
-          
-    // Channel configurations
-    const CHANNEL_CONFIG_NONE = 0,
-          CHANNEL_CONFIG_MONO = 1,
-          CHANNEL_CONFIG_STEREO = 2,
-          CHANNEL_CONFIG_STEREO_PLUS_CENTER = 3,
-          CHANNEL_CONFIG_STEREO_PLUS_CENTER_PLUS_REAR_MONO = 4,
-          CHANNEL_CONFIG_FIVE = 5,
-          CHANNEL_CONFIG_FIVE_PLUS_ONE = 6,
-          CHANNEL_CONFIG_SEVEN_PLUS_ONE = 8;
-          
-    this.prototype.init = function() {
+// Channel configurations
+const CHANNEL_CONFIG_NONE = 0,
+    CHANNEL_CONFIG_MONO = 1,
+    CHANNEL_CONFIG_STEREO = 2,
+    CHANNEL_CONFIG_STEREO_PLUS_CENTER = 3,
+    CHANNEL_CONFIG_STEREO_PLUS_CENTER_PLUS_REAR_MONO = 4,
+    CHANNEL_CONFIG_FIVE = 5,
+    CHANNEL_CONFIG_FIVE_PLUS_ONE = 6,
+    CHANNEL_CONFIG_SEVEN_PLUS_ONE = 8;
+
+const SCE_ELEMENT = 0,
+        CPE_ELEMENT = 1,
+        CCE_ELEMENT = 2,
+        LFE_ELEMENT = 3,
+        DSE_ELEMENT = 4,
+        PCE_ELEMENT = 5,
+        FIL_ELEMENT = 6,
+        END_ELEMENT = 7;
+
+export interface AACDecoderConfig {
+    profile? : number;
+    sampleIndex? : number;
+    sampleRate? : number;
+    chanConfig? : number;
+    frameLength? : number;
+    sectionDataResilience? : number;
+    scalefactorResilience? : number;
+    spectralDataResilience? : number;
+}
+
+export class AACDecoder {
+    constructor(readonly stream : BitstreamReader) {
+    }
+
+    init() {
       this.format.floatingPoint = true;
     }
+
+    format;
+    config : AACDecoderConfig;
+    filter_bank;
+    sbrPresent;
     
-    this.prototype.setCookie = function(buffer) {
+    setCookie(buffer) {
         var data = AV.Stream.fromBuffer(buffer),
             stream = new AV.Bitstream(data);
         
@@ -110,19 +129,14 @@ var AACDecoder = AV.Decoder.extend(function() {
         }
         
         this.filter_bank = new FilterBank(false, this.config.chanConfig);        
-    };
-    
-    const SCE_ELEMENT = 0,
-          CPE_ELEMENT = 1,
-          CCE_ELEMENT = 2,
-          LFE_ELEMENT = 3,
-          DSE_ELEMENT = 4,
-          PCE_ELEMENT = 5,
-          FIL_ELEMENT = 6,
-          END_ELEMENT = 7;
-    
+    }
+
+    cces : CCEElement[];
+    bitstream : BitstreamReader;
+    data : number[];
+
     // The main decoding function.
-    this.prototype.readChunk = function() {
+    readChunk() {
         var stream = this.bitstream;
         
         // check if there is an ADTS header, and read it if so
@@ -213,9 +227,9 @@ var AACDecoder = AV.Decoder.extend(function() {
         }
         
         return output;
-    };
+    }
     
-    this.prototype.process = function(elements) {
+    process(elements) {
         var channels = this.config.chanConfig;
         
         // if (channels === 1 &&  psPresent)
@@ -245,9 +259,9 @@ var AACDecoder = AV.Decoder.extend(function() {
                 throw new Error("Unknown element found.")
             }
         }
-    };
+    }
     
-    this.prototype.processSingle = function(element, channel) {
+    processSingle(element, channel) {
         var profile = this.config.profile,
             info = element.info,
             data = element.data;
@@ -280,9 +294,9 @@ var AACDecoder = AV.Decoder.extend(function() {
             throw new Error("SBR not implemented");
             
         return 1;
-    };
-    
-    this.prototype.processPair = function(element, channel) {
+    }
+
+    processPair(element, channel) {
         var profile = this.config.profile,
             left = element.left,
             right = element.right,
@@ -334,7 +348,7 @@ var AACDecoder = AV.Decoder.extend(function() {
     };
     
     // Intensity stereo
-    this.prototype.processIS = function(element, left, right) {
+    processIS(element, left, right) {
         var ics = element.right,
             info = ics.info,
             offsets = info.swbOffsets,
@@ -376,7 +390,7 @@ var AACDecoder = AV.Decoder.extend(function() {
     };
     
     // Mid-side stereo
-    this.prototype.processMS = function(element, left, right) {
+    processMS(element, left, right) {
         var ics = element.left,
             info = ics.info,
             offsets = info.swbOffsets,
@@ -403,7 +417,7 @@ var AACDecoder = AV.Decoder.extend(function() {
         }
     };
     
-    this.prototype.applyChannelCoupling = function(element, couplingPoint, data1, data2) {
+    applyChannelCoupling(element, couplingPoint, data1, data2) {
         var cces = this.cces,
             isChannelPair = element instanceof CPEElement,
             applyCoupling = couplingPoint === CCEElement.AFTER_IMDCT ? 'applyIndependentCoupling' : 'applyDependentCoupling';
@@ -430,8 +444,5 @@ var AACDecoder = AV.Decoder.extend(function() {
                 }
             }
         }
-    };
-    
-});
-
-module.exports = AACDecoder;
+    };   
+}

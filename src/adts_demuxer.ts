@@ -1,35 +1,39 @@
-var AV = require('av');
-var tables = require('./tables');
+import * as AV from 'av';
+import * as tables from './tables';
+import { Readable, PassThrough, Transform } from 'stream';
 
-var ADTSDemuxer = AV.Demuxer.extend(function() {
-    AV.Demuxer.register(this);
-    
-    this.probe = function(stream) {
-        var offset = stream.offset;
-        
-        // attempt to find ADTS syncword
-        while (stream.available(2)) {
-            if ((stream.readUInt16() & 0xfff6) === 0xfff0) {
-                stream.seek(offset);
-                return true;
-            }
-        }
-        
-        stream.seek(offset);
-        return false;
-    };
-        
-    this.prototype.init = function() {
+export interface ADTSHeader {
+    profile?;
+    samplingIndex?;
+    chanConfig?;
+    frameLength?;
+    numFrames?;
+}
+
+// adts_fixed_header (28 bits)
+// adts_variable_header (28 bits)
+// adts_header_error_check (16 + 16 * number_of_raw_data_blocks_in_frame)
+// 
+
+
+export class ADTSDemuxer extends Transform {
+    constructor(private stream : Readable) {
+        super();
         this.bitstream = new AV.Bitstream(this.stream);
-    };
+    }
+
+    private bitstream : PassThrough;
+    sentHeader;
     
-    // Reads an ADTS header
-    // See http://wiki.multimedia.cx/index.php?title=ADTS
-    this.readHeader = function(stream) {
+    /**
+     * Reads an ADTS header
+     * See http://wiki.multimedia.cx/index.php?title=ADTS
+     */
+    readHeader(stream) {
         if (stream.read(12) !== 0xfff)
             throw new Error('Invalid ADTS header.');
             
-        var ret = {};
+        var ret : ADTSHeader = {};
         stream.advance(3); // mpeg version and layer
         var protectionAbsent = !!stream.read(1);
         
@@ -49,12 +53,12 @@ var ADTSDemuxer = AV.Demuxer.extend(function() {
             stream.advance(16);
         
         return ret;
-    };
+    }
     
-    this.prototype.readChunk = function() {
+    _transform(buffer : Buffer, encoding : string, done : Function) {
         if (!this.sentHeader) {
             var offset = this.stream.offset;
-            var header = ADTSDemuxer.readHeader(this.bitstream);
+            var header = this.readHeader(this.bitstream);
             
             this.emit('format', {
                 formatID: 'aac ',
@@ -79,5 +83,3 @@ var ADTSDemuxer = AV.Demuxer.extend(function() {
         }
     };
 });
-
-module.exports = ADTSDemuxer;
